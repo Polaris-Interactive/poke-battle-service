@@ -1,0 +1,127 @@
+[ {
+  "packet" : "BattleStartPacket",
+  "fields" : {
+    "battleId" : "0192f5a8-3c4d-7e6f-8a9b-0c1d2e3f4a5b",
+    "shardId" : "survie-1",
+    "format" : "polariswild",
+    "seed" : "sodium,0123456789abcdef",
+    "sides" : [ {
+      "slot" : "p1",
+      "name" : "Dresseuse Élise",
+      "playerId" : "6f1c2d3e-4b5a-4c6d-8e7f-9a0b1c2d3e4f",
+      "team" : "Emberling||charcoal|kindle|tackle,embertap|Hardy|,,,,,|M|31,31,31,31,31,31||12|",
+      "ai" : ""
+    }, {
+      "slot" : "p2",
+      "name" : "Pebblit sauvage 🌿",
+      "playerId" : null,
+      "team" : "Pebblit|||sturdy|tackle||||||9|",
+      "ai" : "wild"
+    } ],
+    "turnTimerSeconds" : 40,
+    "allowBag" : true,
+    "allowCapture" : true
+  },
+  "id" : 0,
+  "hex" : "000192f5a83c4d7e6f8a9b0c1d2e3f4a5b087375727669652d310b706f6c6172697377696c6417736f6469756d2c30313233343536373839616263646566020270311044726573736575736520c3896c697365016f1c2d3e4b5a4c6d8e7f9a0b1c2d3e4f4f456d6265726c696e677c7c63686172636f616c7c6b696e646c657c7461636b6c652c656d6265727461707c48617264797c2c2c2c2c2c7c4d7c33312c33312c33312c33312c33312c33317c7c31327c0002703214506562626c6974207361757661676520f09f8cbf001f506562626c69747c7c7c7374757264797c7461636b6c657c7c7c7c7c7c397c0477696c64280101"
+}, {
+  "packet" : "BattleStartReplyPacket",
+  "fields" : {
+    "battleId" : "0192f5a8-3c4d-7e6f-8a9b-0c1d2e3f4a5b",
+    "accepted" : true,
+    "workerId" : "battle-worker-3",
+    "reason" : ""
+  },
+  "id" : 1,
+  "hex" : "010192f5a83c4d7e6f8a9b0c1d2e3f4a5b010f626174746c652d776f726b65722d3300"
+}, {
+  "packet" : "BattleStartReplyPacket",
+  "fields" : {
+    "battleId" : "0192f5a8-3c4d-7e6f-8a9b-0c1d2e3f4a5b",
+    "accepted" : false,
+    "workerId" : "battle-worker-3",
+    "reason" : "unknown format polarisnope"
+  },
+  "id" : 1,
+  "hex" : "010192f5a83c4d7e6f8a9b0c1d2e3f4a5b000f626174746c652d776f726b65722d331a756e6b6e6f776e20666f726d617420706f6c617269736e6f7065"
+}, {
+  "packet" : "BattleChoicePacket",
+  "fields" : {
+    "battleId" : "0192f5a8-3c4d-7e6f-8a9b-0c1d2e3f4a5b",
+    "side" : "p1",
+    "rqid" : 300,
+    "choice" : "move 2"
+  },
+  "id" : 2,
+  "hex" : "020192f5a83c4d7e6f8a9b0c1d2e3f4a5b027031ac02066d6f76652032"
+}, {
+  "packet" : "BattleEndPacket",
+  "fields" : {
+    "battleId" : "0192f5a8-3c4d-7e6f-8a9b-0c1d2e3f4a5b",
+    "result" : "p1",
+    "reason" : "capture"
+  },
+  "id" : 3,
+  "hex" : "030192f5a83c4d7e6f8a9b0c1d2e3f4a5b0270310763617074757265"
+}, {
+  "packet" : "BattleAttachPacket",
+  "fields" : {
+    "battleId" : "0192f5a8-3c4d-7e6f-8a9b-0c1d2e3f4a5b",
+    "shardId" : "survie-2"
+  },
+  "id" : 4,
+  "hex" : "040192f5a83c4d7e6f8a9b0c1d2e3f4a5b087375727669652d32"
+}, {
+  "packet" : "BattleUpdatePacket",
+  "fields" : {
+    "battleId" : "0192f5a8-3c4d-7e6f-8a9b-0c1d2e3f4a5b",
+    "seq" : 5000000000,
+    "side" : "p1",
+    "lines" : [ "|", "|t:|1730700000", "|move|p1a: Emberling|Embertap|p2a: Pebblit", "|-damage|p2a: Pebblit|12/31", "|turn|2" ]
+  },
+  "id" : 5,
+  "hex" : "050192f5a83c4d7e6f8a9b0c1d2e3f4a5b80e497d01202703105017c0e7c743a7c313733303730303030302a7c6d6f76657c7031613a20456d6265726c696e677c456d6265727461707c7032613a20506562626c69741b7c2d64616d6167657c7032613a20506562626c69747c31322f3331077c7475726e7c32"
+}, {
+  "packet" : "BattleUpdatePacket",
+  "fields" : {
+    "battleId" : "0192f5a8-3c4d-7e6f-8a9b-0c1d2e3f4a5b",
+    "seq" : 0,
+    "side" : "",
+    "lines" : [ ]
+  },
+  "id" : 5,
+  "hex" : "050192f5a83c4d7e6f8a9b0c1d2e3f4a5b000000"
+}, {
+  "packet" : "BattleRequestPacket",
+  "fields" : {
+    "battleId" : "0192f5a8-3c4d-7e6f-8a9b-0c1d2e3f4a5b",
+    "seq" : 127,
+    "side" : "p1",
+    "rqid" : 3,
+    "request" : "{\"active\":[{\"moves\":[{\"move\":\"Tackle\",\"id\":\"tackle\",\"pp\":35,\"maxpp\":35}]}],\"rqid\":3}"
+  },
+  "id" : 6,
+  "hex" : "060192f5a83c4d7e6f8a9b0c1d2e3f4a5b7f02703103547b22616374697665223a5b7b226d6f766573223a5b7b226d6f7665223a225461636b6c65222c226964223a227461636b6c65222c227070223a33352c226d61787070223a33357d5d7d5d2c2272716964223a337d"
+}, {
+  "packet" : "BattleChoiceErrorPacket",
+  "fields" : {
+    "battleId" : "0192f5a8-3c4d-7e6f-8a9b-0c1d2e3f4a5b",
+    "seq" : 128,
+    "side" : "p1",
+    "rqid" : 2,
+    "message" : "[Invalid choice] stale request"
+  },
+  "id" : 7,
+  "hex" : "070192f5a83c4d7e6f8a9b0c1d2e3f4a5b8001027031021e5b496e76616c69642063686f6963655d207374616c652072657175657374"
+}, {
+  "packet" : "BattleEndedPacket",
+  "fields" : {
+    "battleId" : "0192f5a8-3c4d-7e6f-8a9b-0c1d2e3f4a5b",
+    "seq" : 16384,
+    "result" : "tie",
+    "reason" : "",
+    "turns" : 12
+  },
+  "id" : 8,
+  "hex" : "080192f5a83c4d7e6f8a9b0c1d2e3f4a5b80800103746965000c"
+} ]

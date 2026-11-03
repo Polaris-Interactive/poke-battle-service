@@ -1,0 +1,37 @@
+{
+  "name": "poke-battle-service",
+  "version": "0.1.0",
+  "description": "PokeLegends battle worker: runs Pok\u00e9mon Showdown battles for PokeBattle over RabbitMQ (AstralCore packets).",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "test": "vitest run",
+    "sync-vectors": "cp ../PokeBattle/common/src/test/resources/contract/vectors.json test/contract/vectors.json"
+  },
+  "license": "UNLICENSED",
+  "dependencies": {
+    "amqplib": "^2.2.1",
+    "ioredis": "^6.0.0",
+    "pokemon-showdown": "^0.11.11"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "ioredis-mock": "^8.13.1",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
+  },
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "overrides": {
+    "ioredis-mock": {
+      "ioredis": "$ioredis"
+    }
+  }
+}
