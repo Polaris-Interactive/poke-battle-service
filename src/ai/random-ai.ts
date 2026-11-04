@@ -38,12 +38,15 @@ export class RandomAi implements BattleAi {
     private forcedSwitches(request: ChoiceRequest): string {
         const team = request.side?.pokemon ?? [];
         const taken = new Set<number>();
+        // After Revival Blessing, the "switch" picks a fainted member to revive instead
+        const reviving = team.some(pokemon => pokemon.active && pokemon.reviving);
         return request.forceSwitch!.map(forced => {
             if (!forced)
                 return 'pass';
             const bench = team
                 .map((pokemon, index) => ({ pokemon, slot: index + 1 }))
-                .filter(({ pokemon, slot }) => !pokemon.active && !pokemon.condition.endsWith(' fnt') && !taken.has(slot));
+                .filter(({ pokemon, slot }) => !pokemon.active && pokemon.condition.endsWith(' fnt') === reviving
+                    && !taken.has(slot));
             if (bench.length === 0)
                 return 'pass';
             const { slot } = this.pick(bench);

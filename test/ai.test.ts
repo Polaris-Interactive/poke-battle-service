@@ -32,6 +32,21 @@ describe('RandomAi', () => {
         expect(choice).toBe('switch 4, switch 5');
     });
 
+    it('picks a fainted member to revive after Revival Blessing', () => {
+        const ai = new RandomAi(() => 0);
+        const choice = ai.choose({
+            forceSwitch: [true],
+            side: {
+                pokemon: [
+                    { active: true, condition: '80/100', reviving: true },
+                    { condition: '50/100' },
+                    { condition: '0 fnt' },
+                ],
+            },
+        });
+        expect(choice).toBe('switch 3');
+    });
+
     it('passes when nothing can come in, and waits on wait requests', () => {
         const ai = new RandomAi();
         expect(ai.choose({ forceSwitch: [true], side: { pokemon: [{ active: true, condition: '0 fnt' }] } })).toBe('pass');

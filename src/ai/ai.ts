@@ -11,7 +11,8 @@ export interface ChoiceRequest {
         trapped?: boolean;
     }[];
     side?: {
-        pokemon: { active?: boolean; condition: string }[];
+        /** {@code reviving}: Revival Blessing, the forced "switch" names a fainted member to bring back. */
+        pokemon: { active?: boolean; condition: string; reviving?: boolean }[];
     };
 }
 
