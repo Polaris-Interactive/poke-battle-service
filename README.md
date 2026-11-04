@@ -1,6 +1,6 @@
 # poke-battle-service
 
-The PokeLegends battle worker. It runs Pokémon Showdown battles for **PokeBattle** (Paper) and talks to it over
+The PokeSMP battle worker. It runs Pokémon Showdown battles for **PokeBattle** (Paper) and talks to it over
 RabbitMQ with AstralCore's binary packets, so PokeBattle uses its plain `MessagingService`. The worker writes no game
 data: rewards, captures and storage stay in PokeCore.
 
@@ -22,10 +22,14 @@ Paper servers ──BattleStartPacket──▶ pokebattle.start (shared queue) �
   `seq` for the shard to reorder.
 - **Hidden information:** each player gets their own view of the battle (the opponent's HP as a percentage, no
   opponent requests).
-- **Creature condition:** a side may carry each member's HP, status and PP (`state`); every PokeLegends format applies
+- **Creature condition:** a side may carry each member's HP, status and PP (`state`); every PokeSMP format applies
   it before the leads switch in, and `BattleEndedPacket.teams` reports how every team left, in start order. The state
-  is a `>player` option, so it is in the replay log too. Until the Showdown fork, this is a small patch of
-  `Battle.setPlayer` (`src/battle/team-state.ts`).
+  is a `>player` option, so it is in the replay log too. A fainted member may come along (hp 0, never the lead) so the
+  bag can revive it. Until the Showdown fork, this is a small patch of `Battle.setPlayer` (`src/battle/team-state.ts`).
+- **Request ids:** the simulator leaves `rqid` to its server, so the session numbers every player request itself; a
+  choice for an older one is refused as stale.
+- **Turn timer:** with `turnTimerSeconds` > 0, a player request left unanswered that long is answered by the random AI,
+  and the player's view gets a `|polaris-timer|<side>` line first.
 - **Replay:** every simulator input is appended to `pokebattle:battle:<id>:log`. With the seed, that replays the
   battle exactly (tested). Recovery on another worker uses it (not built yet).
 - **Heartbeat:** `pokebattle:worker:<id>` (battles, capacity) with a short TTL, to detect dead workers.
@@ -38,7 +42,17 @@ codec must reproduce them exactly. After a contract change: regenerate them in P
 ## Formats and AI
 
 `config/formats.json` defines the formats added to the simulator at boot; a shard sends the format id as is
-(`polariswild`). Capture, bag, flee and raid mechanics come with the Showdown fork.
+(`polariswild`). A format's `polaris` block turns on PokeSMP's choices (`src/battle/polaris-choices.ts`); the ball and
+the bag also need the start's `allowCapture` / `allowBag`. Each takes the creature's turn and runs before moves
+(singles only):
+
+| Choice | Effect | Line in the player's view |
+|---|---|---|
+| `ball <ball> <shakes> <caught 0\|1>` | **The shard rolls the capture** and sends the result (logged, so replays agree). A catch ends the battle with the thrower's win, reason `captured` | `\|polaris-ball\|<target>\|<ball>\|<shakes>\|caught\|free` |
+| `run` | Escapes when faster, else with the mainline odds (+30/256 per attempt, battle random). Refused when trapped, except Ghost types, Run Away, Smoke Ball. An escape ends with result `fled` | `\|polaris-run\|<pokemon>\|escaped\|failed` |
+| `item <item> <position> <effects>` | A bag item on the member at `position` (as `switch N`, fainted ones included). Effects joined by `+`: `heal[=N]`, `cure`, `revive=F`, `pp[=N]`, read by the shard from the item's AstralItems blueprint. Refused if it would do nothing | `\|polaris-item\|<target>\|<item>`, then `-heal` / `-curestatus` |
+
+Raid mechanics come with the Showdown fork.
 
 AI ids a start may give a side: `wild` (random legal choice). A start naming an unknown AI is refused.
 

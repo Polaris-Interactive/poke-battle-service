@@ -2,8 +2,10 @@ import ps from 'pokemon-showdown';
 import battleModule from 'pokemon-showdown/dist/sim/battle.js';
 
 import type { BattleAi, ChoiceRequest } from '../ai/ai.js';
+import { RandomAi } from '../ai/random-ai.js';
 import type { BattleSide, BattleStartPacket, BattleTeamState, ShardPacket } from '../codec/packets.js';
 import { log } from '../log.js';
+import { capturingSide, fledSide, type SideRules } from './polaris-choices.js';
 import { reportTeams } from './team-state.js';
 import type { BattleStore } from '../store/battle-store.js';
 
@@ -42,7 +44,14 @@ interface HumanSide {
     side: BattleSide;
     /** The request the player has to answer, re-sent on re-attach. */
     pending: { rqid: number; request: string } | null;
+    /** A choice for {@link pending} went to the simulator and was not refused. */
+    answered: boolean;
+    /** Plays for the player when the turn timer runs out. */
+    timer: NodeJS.Timeout | null;
 }
+
+/** Plays for a player whose turn timer ran out (GDD: the AI chooses). */
+const TIMEOUT_AI = new RandomAi();
 
 /**
  * One battle on this worker: a Showdown BattleStream, read in a single loop so that everything the shard receives keeps
@@ -60,6 +69,8 @@ export class BattleSession {
     private readonly ais = new Map<string, BattleAi>();
     private readonly closed: Promise<void>;
     private seq = 0;
+    /** The simulator leaves rqid to its server: the session numbers each player request itself. */
+    private lastRqid = 0;
     private loggedInputs = 0;
     private abortReason: string | null = null;
     private endReason = '';
@@ -67,15 +78,18 @@ export class BattleSession {
     private finalTeams: BattleTeamState[] = [];
     private idleTimer: NodeJS.Timeout | null = null;
 
+    private readonly turnTimerSeconds: number;
+
     private constructor(start: BattleStartPacket, private readonly seed: string,
                         private readonly deps: SessionDependencies) {
         this.battleId = start.battleId;
+        this.turnTimerSeconds = start.turnTimerSeconds;
         this.shardId = start.shardId;
         this.stream = new BattleStream();
 
         for (const side of start.sides) {
             if (side.ai === '')
-                this.humans.set(side.slot, { side, pending: null });
+                this.humans.set(side.slot, { side, pending: null, answered: false, timer: null });
             else
                 this.ais.set(side.slot, deps.createAi(side.ai)!);
         }
@@ -88,10 +102,15 @@ export class BattleSession {
             .then(() => this.close());
 
         this.input(`>start ${JSON.stringify({ formatid: start.format, seed })}`);
+        // Players get the battle's rules for the ball and the bag; options are logged as given, so replays keep them
+        const rules: SideRules = { capture: start.allowCapture, bag: start.allowBag };
         for (const side of start.sides)
-            this.input(`>player ${side.slot} ${JSON.stringify(side.state.length > 0
-                ? { name: side.name, team: side.team, state: side.state }
-                : { name: side.name, team: side.team })}`);
+            this.input(`>player ${side.slot} ${JSON.stringify({
+                name: side.name,
+                team: side.team,
+                ...(side.state.length > 0 ? { state: side.state } : {}),
+                ...(side.ai === '' ? { rules } : {}),
+            })}`);
         this.resetIdleTimer();
     }
 
@@ -140,8 +159,8 @@ export class BattleSession {
                 throw new StartRejected(`invalid team for ${side.slot}`);
             if (side.state.length > 0 && side.state.length !== team.length)
                 throw new StartRejected(`${side.slot} has ${team.length} members but ${side.state.length} states`);
-            if (side.state.some(state => state.hp <= 0))
-                throw new StartRejected(`${side.slot} brings a fainted member`);
+            if (side.state.length > 0 && side.state[0]!.hp <= 0)
+                throw new StartRejected(`${side.slot} leads with a fainted member`);
             for (const set of team)
                 if (!Dex.species.get(set.species).exists)
                     throw new StartRejected(`unknown species ${set.species} for ${side.slot}`);
@@ -178,6 +197,7 @@ export class BattleSession {
         }
 
         this.resetIdleTimer();
+        human.answered = true;
         this.input(`>${side} ${choice}`);
         void this.deps.store.touch(this.battleId, this.turn()).catch(error =>
             log.warn('Could not refresh the battle keys', { battleId: this.battleId, error }));
@@ -208,6 +228,7 @@ export class BattleSession {
 
     /** Stops the battle with no winner and no rewards. */
     abort(reason: string): void {
+        this.clearTurnTimers();
         if (this.abortReason !== null)
             return;
         this.abortReason = reason;
@@ -271,9 +292,13 @@ export class BattleSession {
             const human = this.humans.get(side);
             if (human !== undefined) {
                 const request = JSON.parse(json) as ChoiceRequest;
-                human.pending = { rqid: request.rqid ?? 0, request: json };
+                request.rqid = ++this.lastRqid;
+                const numbered = JSON.stringify(request);
+                human.pending = { rqid: request.rqid, request: numbered };
+                human.answered = false;
                 this.emit({ packet: 'BattleRequestPacket', battleId: this.battleId, seq: 0, side,
-                    rqid: human.pending.rqid, request: json });
+                    rqid: request.rqid, request: numbered });
+                this.startTurnTimer(side, human, request);
             } else {
                 this.playAi(side, JSON.parse(json) as ChoiceRequest);
             }
@@ -283,12 +308,49 @@ export class BattleSession {
         if (message.startsWith('|error|')) {
             const human = this.humans.get(side);
             if (human !== undefined) {
+                human.answered = false;
                 this.emit({ packet: 'BattleChoiceErrorPacket', battleId: this.battleId, seq: 0, side,
                     rqid: human.pending?.rqid ?? 0, message: message.slice('|error|'.length) });
             } else {
                 log.warn('AI choice refused, playing the default', { battleId: this.battleId, side, message });
                 this.input(`>${side} default`);
             }
+        }
+    }
+
+    /**
+     * Starts the side's turn timer for a request it has to answer: when it runs out, the AI chooses for the player and
+     * the shard is told with a {@code |polaris-timer|<side>} line. Off when the start's timer is 0.
+     */
+    private startTurnTimer(side: string, human: HumanSide, request: ChoiceRequest): void {
+        if (human.timer !== null)
+            clearTimeout(human.timer);
+        human.timer = null;
+        const seconds = this.turnTimerSeconds;
+        if (seconds <= 0 || request.wait)
+            return;
+        const rqid = request.rqid!;
+        human.timer = setTimeout(() => {
+            human.timer = null;
+            if (this.abortReason !== null || human.pending?.rqid !== rqid || human.answered)
+                return;
+            const choice = TIMEOUT_AI.choose(request);
+            if (choice === null)
+                return;
+            log.info('Turn timer ran out, choosing for the player', { battleId: this.battleId, side, rqid });
+            this.emit({ packet: 'BattleUpdatePacket', battleId: this.battleId, seq: 0, side,
+                lines: [`|polaris-timer|${side}`] });
+            human.answered = true;
+            this.input(`>${side} ${choice}`);
+        }, seconds * 1000);
+        human.timer.unref();
+    }
+
+    private clearTurnTimers(): void {
+        for (const human of this.humans.values()) {
+            if (human.timer !== null)
+                clearTimeout(human.timer);
+            human.timer = null;
         }
     }
 
@@ -308,6 +370,7 @@ export class BattleSession {
     private async close(): Promise<void> {
         if (this.idleTimer !== null)
             clearTimeout(this.idleTimer);
+        this.clearTurnTimers();
         this.syncInputLog();
 
         const battle = this.stream.battle;
@@ -316,8 +379,13 @@ export class BattleSession {
         if (this.abortReason !== null || battle === null || !battle.ended) {
             result = 'aborted';
             reason = this.abortReason ?? 'simulator ended';
+        } else if (fledSide(battle) !== undefined) {
+            result = 'fled';
+            reason = `${fledSide(battle)} fled`;
         } else {
             result = this.winningSide();
+            if (capturingSide(battle) !== undefined)
+                reason = 'captured';
         }
 
         this.emit({ packet: 'BattleEndedPacket', battleId: this.battleId, seq: 0, result, reason, turns: this.turn(),

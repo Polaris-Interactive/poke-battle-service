@@ -55,8 +55,14 @@ export function applyTeamStates(this: ShowdownBattle): void {
 }
 
 function applyState(battle: ShowdownBattle, pokemon: ShowdownPokemon, state: BattleMemberState): void {
-    // A fainted member is never sent (the shard leaves it out), so at least 1 HP
-    pokemon.hp = Math.min(Math.max(1, state.hp), pokemon.maxhp);
+    if (state.hp <= 0) {
+        // Brought along only to be revived from the bag; never the lead (refused at start)
+        pokemon.hp = 0;
+        pokemon.fainted = true;
+        pokemon.status = '';
+    } else {
+        pokemon.hp = Math.min(state.hp, pokemon.maxhp);
+    }
 
     // baseMoveSlots and moveSlots share their slot objects until a move is copied or transformed
     pokemon.baseMoveSlots.forEach((slot, index) => {
@@ -68,7 +74,7 @@ function applyState(battle: ShowdownBattle, pokemon: ShowdownPokemon, state: Bat
             slot.pp = Math.min(Math.max(0, pp), slot.maxpp);
     });
 
-    if (state.status !== '' && battle.dex.conditions.get(state.status).effectType === 'Status') {
+    if (state.hp > 0 && state.status !== '' && battle.dex.conditions.get(state.status).effectType === 'Status') {
         // Set directly: setStatus would announce it for a creature not on the field yet
         pokemon.status = state.status as ShowdownPokemon['status'];
         pokemon.statusState = battle.initEffectState({ id: state.status, target: pokemon });
@@ -78,6 +84,15 @@ function applyState(battle: ShowdownBattle, pokemon: ShowdownPokemon, state: Bat
             pokemon.statusState.time = pokemon.statusState.startTime;
         }
     }
+}
+
+/**
+ * The formats' {@code onBattleStart}: the simulator counts every team member as able to fight when the battle starts,
+ * fainted members brought for the bag must not count (else the battle would wait for a switch that cannot happen).
+ */
+export function countStandingMembers(this: ShowdownBattle): void {
+    for (const side of this.sides)
+        side.pokemonLeft = side.pokemon.filter(pokemon => !pokemon.fainted).length;
 }
 
 /**

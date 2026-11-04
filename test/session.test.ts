@@ -173,7 +173,7 @@ describe('BattleSession', () => {
         expect(replay.battle!.sides[0]!.pokemon[0]!.status).toBe('par');
     });
 
-    it('refuses a fainted member or a state per member mismatch', () => {
+    it('refuses a fainted lead or a state per member mismatch', () => {
         const team = randomTeam();
         const size = Teams.unpack(team)!.length;
         const sides = (state: { hp: number; status: string; pp: number[]; maxPp: number[] }[]) => [

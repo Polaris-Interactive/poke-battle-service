@@ -7,10 +7,11 @@ import type { BattleMeta, BattleStore } from '../src/store/battle-store.js';
 const { Teams } = ps;
 
 /**
- * Teams from the simulator's own random generator: the tests never name a creature.
+ * Teams from the simulator's own random generator: the tests never name a creature. Without held items, which heal
+ * or hurt on their own (berries, Leftovers) and would make HP checks flaky.
  */
 export function randomTeam(): string {
-    return Teams.pack(Teams.generate('gen9randombattle'));
+    return Teams.pack(Teams.generate('gen9randombattle').map(set => ({ ...set, item: '' })));
 }
 
 export function startPacket(overrides: Partial<BattleStartPacket> = {}, sides?: BattleSide[]): BattleStartPacket {

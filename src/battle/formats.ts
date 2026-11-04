@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs';
 import ps from 'pokemon-showdown';
 import dexFormats from 'pokemon-showdown/dist/sim/dex-formats.js';
 
-import { applyTeamStates, installTeamStates } from './team-state.js';
+import { installPolarisChoices, type FormatFeatures } from './polaris-choices.js';
+import { applyTeamStates, countStandingMembers, installTeamStates } from './team-state.js';
 
 const { Dex, toID } = ps;
 const { Format } = dexFormats;
@@ -13,6 +14,7 @@ const { Format } = dexFormats;
  *
  * @param name     display name; its simulator id (lowercase alphanumerics) must be the format's id
  * @param ruleset  simulator rules (clauses, mods, team size, level caps...)
+ * @param polaris  PokeSMP choices the format allows (capture, bag, flee); none when absent
  */
 export interface FormatDefinition {
     name: string;
@@ -20,12 +22,13 @@ export interface FormatDefinition {
     mod: string;
     gameType: 'singles' | 'doubles' | 'triples' | 'multi' | 'freeforall';
     ruleset: string[];
+    polaris?: FormatFeatures;
 }
 
 /**
- * The formats this worker runs, from config/formats.json, added to the simulator's format list at boot. Game rules
- * that need simulator changes (capture, bag, flee, raid bosses) come with the Showdown fork's mod. Every format
- * starts teams in the condition the shard sends ({@link applyTeamStates}).
+ * The formats this worker runs, from config/formats.json, added to the simulator's format list at boot. Every format
+ * starts teams in the condition the shard sends ({@link applyTeamStates}); capture, bag and flee are PokeSMP choices
+ * a format turns on ({@link installPolarisChoices}). Raid bosses come with the Showdown fork's mod.
  */
 export class Formats {
 
@@ -41,6 +44,7 @@ export class Formats {
      */
     static register(definitions: Record<string, FormatDefinition>): Formats {
         installTeamStates();
+        installPolarisChoices();
         Dex.formats.load();
         const cache = Dex.formats.rulesetCache;
         for (const [id, definition] of Object.entries(definitions)) {
@@ -63,7 +67,9 @@ export class Formats {
                 tournamentShow: false,
                 // Creatures keep their HP, status and PP from one battle to the next
                 onBegin: applyTeamStates,
+                onBattleStart: countStandingMembers,
             });
+            (format as typeof format & { polaris: FormatFeatures }).polaris = { ...definition.polaris };
             cache.set(id, format);
             // Resolves every rule now: a typo fails the boot, not the first battle
             Dex.formats.getRuleTable(format);

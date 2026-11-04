@@ -1,9 +1,20 @@
 {
   "polariswild": {
     "name": "Polaris Wild",
-    "description": "Wild battle, singles, no team preview. Capture, bag and flee come with the Showdown fork.",
+    "description": "Wild battle, singles, no team preview: capture, bag and flee.",
     "mod": "gen9",
     "gameType": "singles",
-    "ruleset": ["Cancel Mod", "HP Percentage Mod", "Max Team Size = 6", "Max Level = 100", "Default Level = 100"]
+    "ruleset": [
+      "Cancel Mod",
+      "HP Percentage Mod",
+      "Max Team Size = 6",
+      "Max Level = 100",
+      "Default Level = 100"
+    ],
+    "polaris": {
+      "capture": true,
+      "bag": true,
+      "flee": true
+    }
   }
 }
