@@ -5,9 +5,9 @@ import { createAi } from '../src/ai/registry.js';
 import { BattleSession } from '../src/battle/session.js';
 import { Formats } from '../src/battle/formats.js';
 import type { BattleStartPacket } from '../src/codec/packets.js';
-import { MemoryStore, RecordingOutbox, startPacket } from './fakes.js';
+import { MemoryStore, RecordingOutbox, randomTeam, startPacket } from './fakes.js';
 
-const { BattleStream } = ps;
+const { BattleStream, Teams } = ps;
 Formats.load('config/formats.json');
 
 function run(start: BattleStartPacket, outbox = new RecordingOutbox(), store = new MemoryStore()) {
@@ -40,6 +40,10 @@ describe('BattleSession', () => {
         const ended = outbox.packets('BattleEndedPacket')[0]!;
         expect(['p1', 'p2', 'tie']).toContain(ended.result);
         expect(ended.turns).toBeGreaterThan(0);
+        expect(ended.teams.map(team => team.slot)).toEqual(['p1', 'p2']);
+        const loser = ended.result === 'p1' ? 1 : 0;
+        if (ended.result !== 'tie')
+            expect(ended.teams[loser]!.members.every(member => member.hp === 0)).toBe(true);
         expect(outbox.packets('BattleUpdatePacket').every(update => update.side === 'p1')).toBe(true);
         expect(outbox.packets('BattleChoiceErrorPacket')).toEqual([]);
         expect(store.results.get(session.battleId)).toBe(ended.result);
@@ -129,5 +133,57 @@ describe('BattleSession', () => {
         expect(replay.battle!.turn).toBe(original.turns);
         const winner = replay.battle!.sides.find(side => side.name === replay.battle!.winner)?.id ?? 'tie';
         expect(winner).toBe(original.result);
+    });
+
+    it('starts creatures in the condition the shard sends and reports how every team left', async () => {
+        const team = randomTeam();
+        const size = Teams.unpack(team)!.length;
+        const state = Array.from({ length: size }, (_, index) => index === 0
+            ? { hp: 10, status: 'par', pp: [1], maxPp: [5] }
+            : { hp: 9999, status: '', pp: [], maxPp: [] });
+        const start = startPacket({}, [
+            { slot: 'p1', name: 'Player', playerId: crypto.randomUUID(), team, ai: '', state },
+            { slot: 'p2', name: 'Wild', playerId: null, team: randomTeam(), ai: 'wild', state: [] },
+        ]);
+        const { session, outbox, store } = run(start);
+        const request = JSON.parse((await nextRequest(outbox, 1)).request);
+
+        expect(request.side.pokemon[0].condition).toMatch(/^10\/\d+ par$/);
+        expect(request.active[0].moves[0]).toMatchObject({ pp: 1, maxpp: 5 });
+        // Before the leads switch in: no line shows the lead at full HP
+        const lead = outbox.packets('BattleUpdatePacket').flatMap(update => update.lines)
+            .find(line => line.startsWith('|switch|p1a:'))!;
+        expect(lead).toMatch(/\|10\/\d+ par$/);
+
+        session.abort('test');
+        await session.done;
+        const ended = outbox.packets('BattleEndedPacket')[0]!;
+        expect(ended.teams.map(t => t.slot)).toEqual(['p1', 'p2']);
+        expect(ended.teams[0]!.members).toHaveLength(size);
+        expect(ended.teams[0]!.members[0]).toMatchObject({ hp: 10, status: 'par' });
+        expect(ended.teams[0]!.members[0]!.pp[0]).toBe(1);
+        expect(ended.teams[0]!.members[0]!.maxPp[0]).toBe(5);
+        // Clamped to the maximum: before any switch, the request lists the team in start order
+        expect(ended.teams[0]!.members[1]!.hp).toBe(Number(request.side.pokemon[1].condition.split('/')[0]));
+
+        // The state is part of the logged input: a replay starts from it too
+        const replay = new BattleStream();
+        void replay.write(store.logs.get(session.battleId)!.join('\n'));
+        expect(replay.battle!.sides[0]!.pokemon[0]!.hp).toBe(10);
+        expect(replay.battle!.sides[0]!.pokemon[0]!.status).toBe('par');
+    });
+
+    it('refuses a fainted member or a state per member mismatch', () => {
+        const team = randomTeam();
+        const size = Teams.unpack(team)!.length;
+        const sides = (state: { hp: number; status: string; pp: number[]; maxPp: number[] }[]) => [
+            { slot: 'p1', name: 'Player', playerId: null, team, ai: '', state },
+            { slot: 'p2', name: 'Wild', playerId: null, team: randomTeam(), ai: 'wild', state: [] },
+        ];
+        const fresh = { hp: 1, status: '', pp: [], maxPp: [] };
+        expect(() => BattleSession.prepare(startPacket({}, sides([fresh])), { createAi }))
+            .toThrow(size === 1 ? /fainted/ : /states/);
+        expect(() => BattleSession.prepare(startPacket({}, sides(Array(size).fill({ ...fresh, hp: 0 }))), { createAi }))
+            .toThrow(/fainted/);
     });
 });

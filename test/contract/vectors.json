@@ -10,20 +10,27 @@
       "name" : "Dresseuse Élise",
       "playerId" : "6f1c2d3e-4b5a-4c6d-8e7f-9a0b1c2d3e4f",
       "team" : "Emberling||charcoal|kindle|tackle,embertap|Hardy|,,,,,|M|31,31,31,31,31,31||12|",
-      "ai" : ""
+      "ai" : "",
+      "state" : [ {
+        "hp" : 27,
+        "status" : "par",
+        "pp" : [ 35, 24 ],
+        "maxPp" : [ 35, 25 ]
+      } ]
     }, {
       "slot" : "p2",
       "name" : "Pebblit sauvage 🌿",
       "playerId" : null,
       "team" : "Pebblit|||sturdy|tackle||||||9|",
-      "ai" : "wild"
+      "ai" : "wild",
+      "state" : [ ]
     } ],
     "turnTimerSeconds" : 40,
     "allowBag" : true,
     "allowCapture" : true
   },
   "id" : 0,
-  "hex" : "000192f5a83c4d7e6f8a9b0c1d2e3f4a5b087375727669652d310b706f6c6172697377696c6417736f6469756d2c30313233343536373839616263646566020270311044726573736575736520c3896c697365016f1c2d3e4b5a4c6d8e7f9a0b1c2d3e4f4f456d6265726c696e677c7c63686172636f616c7c6b696e646c657c7461636b6c652c656d6265727461707c48617264797c2c2c2c2c2c7c4d7c33312c33312c33312c33312c33312c33317c7c31327c0002703214506562626c6974207361757661676520f09f8cbf001f506562626c69747c7c7c7374757264797c7461636b6c657c7c7c7c7c7c397c0477696c64280101"
+  "hex" : "000192f5a83c4d7e6f8a9b0c1d2e3f4a5b087375727669652d310b706f6c6172697377696c6417736f6469756d2c30313233343536373839616263646566020270311044726573736575736520c3896c697365016f1c2d3e4b5a4c6d8e7f9a0b1c2d3e4f4f456d6265726c696e677c7c63686172636f616c7c6b696e646c657c7461636b6c652c656d6265727461707c48617264797c2c2c2c2c2c7c4d7c33312c33312c33312c33312c33312c33317c7c31327c00011b0370617202231802231902703214506562626c6974207361757661676520f09f8cbf001f506562626c69747c7c7c7374757264797c7461636b6c657c7c7c7c7c7c397c0477696c6400280101"
 }, {
   "packet" : "BattleStartReplyPacket",
   "fields" : {
@@ -120,8 +127,25 @@
     "seq" : 16384,
     "result" : "tie",
     "reason" : "",
-    "turns" : 12
+    "turns" : 12,
+    "teams" : [ {
+      "slot" : "p1",
+      "members" : [ {
+        "hp" : 0,
+        "status" : "",
+        "pp" : [ 30, 25 ],
+        "maxPp" : [ 35, 25 ]
+      } ]
+    }, {
+      "slot" : "p2",
+      "members" : [ {
+        "hp" : 312,
+        "status" : "brn",
+        "pp" : [ 56 ],
+        "maxPp" : [ 56 ]
+      } ]
+    } ]
   },
   "id" : 8,
-  "hex" : "080192f5a83c4d7e6f8a9b0c1d2e3f4a5b80800103746965000c"
+  "hex" : "080192f5a83c4d7e6f8a9b0c1d2e3f4a5b80800103746965000c02027031010000021e1902231902703201b8020362726e01380138"
 } ]

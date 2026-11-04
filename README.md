@@ -22,6 +22,10 @@ Paper servers ──BattleStartPacket──▶ pokebattle.start (shared queue) �
   `seq` for the shard to reorder.
 - **Hidden information:** each player gets their own view of the battle (the opponent's HP as a percentage, no
   opponent requests).
+- **Creature condition:** a side may carry each member's HP, status and PP (`state`); every PokeLegends format applies
+  it before the leads switch in, and `BattleEndedPacket.teams` reports how every team left, in start order. The state
+  is a `>player` option, so it is in the replay log too. Until the Showdown fork, this is a small patch of
+  `Battle.setPlayer` (`src/battle/team-state.ts`).
 - **Replay:** every simulator input is appended to `pokebattle:battle:<id>:log`. With the seed, that replays the
   battle exactly (tested). Recovery on another worker uses it (not built yet).
 - **Heartbeat:** `pokebattle:worker:<id>` (battles, capacity) with a short TTL, to detect dead workers.

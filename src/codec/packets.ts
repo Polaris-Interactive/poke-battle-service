@@ -6,6 +6,25 @@ import { BinaryReader, BinaryWriter } from './binary.js';
  * declaration order. Never renumber an id; change fields only together with the Java side and the contract vectors.
  */
 
+/**
+ * The condition of one team member, in the order of its moves: brought into a battle, and reported when it ends.
+ */
+export interface BattleMemberState {
+    /** Current HP, 0 when fainted. */
+    hp: number;
+    /** Non-volatile status id, empty when healthy. */
+    status: string;
+    pp: number[];
+    /** Maximum PP per move, PP Ups included. */
+    maxPp: number[];
+}
+
+/** A side's team when the battle ended, in the order of its start team. */
+export interface BattleTeamState {
+    slot: string;
+    members: BattleMemberState[];
+}
+
 export interface BattleSide {
     /** Simulator side id: p1, p2 (p3, p4 in multi battles). */
     slot: string;
@@ -16,6 +35,8 @@ export interface BattleSide {
     team: string;
     /** AI id playing this side, empty when a player chooses. */
     ai: string;
+    /** Condition of each team member in team order, empty when the whole team is fresh. */
+    state: BattleMemberState[];
 }
 
 export interface BattleStartPacket {
@@ -94,6 +115,8 @@ export interface BattleEndedPacket {
     result: string;
     reason: string;
     turns: number;
+    /** Empty when the battle never started. */
+    teams: BattleTeamState[];
 }
 
 export type Packet =
@@ -118,12 +141,27 @@ type Codec<P extends Packet> = {
     read(reader: BinaryReader): Omit<P, 'packet'>;
 };
 
+const writeMember = (writer: BinaryWriter, member: BattleMemberState): void => {
+    writer.writeVarInt(member.hp)
+        .writeString(member.status)
+        .writeList(member.pp, (w, pp) => w.writeVarInt(pp))
+        .writeList(member.maxPp, (w, pp) => w.writeVarInt(pp));
+};
+
+const readMember = (reader: BinaryReader): BattleMemberState => ({
+    hp: reader.readVarInt(),
+    status: reader.readString(),
+    pp: reader.readList(r => r.readVarInt()),
+    maxPp: reader.readList(r => r.readVarInt()),
+});
+
 const writeSide = (writer: BinaryWriter, side: BattleSide): void => {
     writer.writeString(side.slot)
         .writeString(side.name)
         .writeOptional(side.playerId, (w, id) => w.writeUuid(id))
         .writeString(side.team)
-        .writeString(side.ai);
+        .writeString(side.ai)
+        .writeList(side.state, writeMember);
 };
 
 const readSide = (reader: BinaryReader): BattleSide => ({
@@ -132,6 +170,16 @@ const readSide = (reader: BinaryReader): BattleSide => ({
     playerId: reader.readOptional(r => r.readUuid()),
     team: reader.readString(),
     ai: reader.readString(),
+    state: reader.readList(readMember),
+});
+
+const writeTeam = (writer: BinaryWriter, team: BattleTeamState): void => {
+    writer.writeString(team.slot).writeList(team.members, writeMember);
+};
+
+const readTeam = (reader: BinaryReader): BattleTeamState => ({
+    slot: reader.readString(),
+    members: reader.readList(readMember),
 });
 
 const CODECS: { [N in PacketName]: Codec<Extract<Packet, { packet: N }>> } = {
@@ -198,9 +246,10 @@ const CODECS: { [N in PacketName]: Codec<Extract<Packet, { packet: N }>> } = {
     BattleEndedPacket: {
         id: 0x08,
         write: (w, p) => w.writeUuid(p.battleId).writeVarLong(p.seq).writeString(p.result).writeString(p.reason)
-            .writeVarInt(p.turns),
+            .writeVarInt(p.turns).writeList(p.teams, writeTeam),
         read: r => ({
             battleId: r.readUuid(), seq: r.readVarLong(), result: r.readString(), reason: r.readString(), turns: r.readVarInt(),
+            teams: r.readList(readTeam),
         }),
     },
 };

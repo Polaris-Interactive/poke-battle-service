@@ -42,16 +42,16 @@ describe('BattleManager', () => {
     it.each([
         ['an unknown format', startPacket({ format: 'polarisnope' }), /unknown format/],
         ['an unknown AI', startPacket({}, [
-            { slot: 'p1', name: 'A', playerId: null, team: randomTeam(), ai: '' },
+            { slot: 'p1', name: 'A', playerId: null, team: randomTeam(), ai: '', state: [] },
             { slot: 'p2', name: 'B', playerId: null, team: randomTeam(), ai: 'grandmaster' },
         ]), /unknown AI/],
         ['an invalid team', startPacket({}, [
-            { slot: 'p1', name: 'A', playerId: null, team: 'not a team', ai: '' },
-            { slot: 'p2', name: 'B', playerId: null, team: randomTeam(), ai: 'wild' },
+            { slot: 'p1', name: 'A', playerId: null, team: 'not a team', ai: '', state: [] },
+            { slot: 'p2', name: 'B', playerId: null, team: randomTeam(), ai: 'wild', state: [] },
         ]), /unknown species|invalid team/],
         ['misnumbered sides', startPacket({}, [
-            { slot: 'p2', name: 'A', playerId: null, team: randomTeam(), ai: '' },
-            { slot: 'p1', name: 'B', playerId: null, team: randomTeam(), ai: 'wild' },
+            { slot: 'p2', name: 'A', playerId: null, team: randomTeam(), ai: '', state: [] },
+            { slot: 'p1', name: 'B', playerId: null, team: randomTeam(), ai: 'wild', state: [] },
         ]), /side 1 must be p1/],
         ['an invalid seed', startPacket({ seed: 'nope' }), /invalid seed/],
     ])('refuses %s without claiming it', async (_, start, reason) => {

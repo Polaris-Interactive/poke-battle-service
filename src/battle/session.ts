@@ -2,8 +2,9 @@ import ps from 'pokemon-showdown';
 import battleModule from 'pokemon-showdown/dist/sim/battle.js';
 
 import type { BattleAi, ChoiceRequest } from '../ai/ai.js';
-import type { BattleSide, BattleStartPacket, ShardPacket } from '../codec/packets.js';
+import type { BattleSide, BattleStartPacket, BattleTeamState, ShardPacket } from '../codec/packets.js';
 import { log } from '../log.js';
+import { reportTeams } from './team-state.js';
 import type { BattleStore } from '../store/battle-store.js';
 
 const { BattleStream, Dex, PRNG, Teams } = ps;
@@ -62,6 +63,8 @@ export class BattleSession {
     private loggedInputs = 0;
     private abortReason: string | null = null;
     private endReason = '';
+    /** Taken when the simulator ends or is stopped: once the stream is closed, the battle is destroyed. */
+    private finalTeams: BattleTeamState[] = [];
     private idleTimer: NodeJS.Timeout | null = null;
 
     private constructor(start: BattleStartPacket, private readonly seed: string,
@@ -86,7 +89,9 @@ export class BattleSession {
 
         this.input(`>start ${JSON.stringify({ formatid: start.format, seed })}`);
         for (const side of start.sides)
-            this.input(`>player ${side.slot} ${JSON.stringify({ name: side.name, team: side.team })}`);
+            this.input(`>player ${side.slot} ${JSON.stringify(side.state.length > 0
+                ? { name: side.name, team: side.team, state: side.state }
+                : { name: side.name, team: side.team })}`);
         this.resetIdleTimer();
     }
 
@@ -133,6 +138,10 @@ export class BattleSession {
             const team = Teams.unpack(side.team);
             if (team === null || team.length === 0)
                 throw new StartRejected(`invalid team for ${side.slot}`);
+            if (side.state.length > 0 && side.state.length !== team.length)
+                throw new StartRejected(`${side.slot} has ${team.length} members but ${side.state.length} states`);
+            if (side.state.some(state => state.hp <= 0))
+                throw new StartRejected(`${side.slot} brings a fainted member`);
             for (const set of team)
                 if (!Dex.species.get(set.species).exists)
                     throw new StartRejected(`unknown species ${set.species} for ${side.slot}`);
@@ -202,6 +211,7 @@ export class BattleSession {
         if (this.abortReason !== null)
             return;
         this.abortReason = reason;
+        this.snapshotTeams();
         void this.stream.writeEnd();
     }
 
@@ -234,7 +244,9 @@ export class BattleSession {
                 this.onUpdate(data);
             else if (type === 'sideupdate')
                 this.onSideUpdate(data);
-            // 'end' carries the battle summary; the stream ends right after it
+            else if (type === 'end')
+                // The battle summary; the stream ends right after it
+                this.snapshotTeams();
         }
     }
 
@@ -308,7 +320,8 @@ export class BattleSession {
             result = this.winningSide();
         }
 
-        this.emit({ packet: 'BattleEndedPacket', battleId: this.battleId, seq: 0, result, reason, turns: this.turn() });
+        this.emit({ packet: 'BattleEndedPacket', battleId: this.battleId, seq: 0, result, reason, turns: this.turn(),
+            teams: this.finalTeams });
         await this.deps.store.finish(this.battleId, result).catch(error =>
             log.warn('Could not mark the battle ended', { battleId: this.battleId, error }));
         this.deps.onClosed(this);
@@ -323,6 +336,12 @@ export class BattleSession {
             return named[0]!.id;
         // Two sides with the same name: the one with creatures left
         return battle.sides.find(side => side.pokemonLeft > 0)?.id ?? 'tie';
+    }
+
+    private snapshotTeams(): void {
+        const battle = this.stream.battle;
+        if (battle?.started && battle.sides.every(side => side !== null))
+            this.finalTeams = reportTeams(battle);
     }
 
     private turn(): number {

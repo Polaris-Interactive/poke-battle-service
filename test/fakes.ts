@@ -21,8 +21,8 @@ export function startPacket(overrides: Partial<BattleStartPacket> = {}, sides?: 
         format: 'polariswild',
         seed: '',
         sides: sides ?? [
-            { slot: 'p1', name: 'Player', playerId: crypto.randomUUID(), team: randomTeam(), ai: '' },
-            { slot: 'p2', name: 'Wild', playerId: null, team: randomTeam(), ai: 'wild' },
+            { slot: 'p1', name: 'Player', playerId: crypto.randomUUID(), team: randomTeam(), ai: '', state: [] },
+            { slot: 'p2', name: 'Wild', playerId: null, team: randomTeam(), ai: 'wild', state: [] },
         ],
         turnTimerSeconds: 0,
         allowBag: false,

@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs';
 import ps from 'pokemon-showdown';
 import dexFormats from 'pokemon-showdown/dist/sim/dex-formats.js';
 
+import { applyTeamStates, installTeamStates } from './team-state.js';
+
 const { Dex, toID } = ps;
 const { Format } = dexFormats;
 
@@ -22,7 +24,8 @@ export interface FormatDefinition {
 
 /**
  * The formats this worker runs, from config/formats.json, added to the simulator's format list at boot. Game rules
- * that need simulator changes (capture, bag, flee, raid bosses) come with the Showdown fork's mod.
+ * that need simulator changes (capture, bag, flee, raid bosses) come with the Showdown fork's mod. Every format
+ * starts teams in the condition the shard sends ({@link applyTeamStates}).
  */
 export class Formats {
 
@@ -37,6 +40,7 @@ export class Formats {
      * @throws Error when a definition is inconsistent or uses an unknown rule
      */
     static register(definitions: Record<string, FormatDefinition>): Formats {
+        installTeamStates();
         Dex.formats.load();
         const cache = Dex.formats.rulesetCache;
         for (const [id, definition] of Object.entries(definitions)) {
@@ -57,6 +61,8 @@ export class Formats {
                 searchShow: false,
                 challengeShow: false,
                 tournamentShow: false,
+                // Creatures keep their HP, status and PP from one battle to the next
+                onBegin: applyTeamStates,
             });
             cache.set(id, format);
             // Resolves every rule now: a typo fails the boot, not the first battle
