@@ -10,7 +10,9 @@
     "dev": "tsx src/index.ts",
     "test": "vitest run",
     "sync-vectors": "cp ../PokeBattle/common/src/test/resources/contract/vectors.json test/contract/vectors.json",
-    "bench": "tsx bench/battle-bench.ts"
+    "bench": "tsx bench/battle-bench.ts",
+    "build:bench": "tsc -p tsconfig.bench.json",
+    "bench:dist": "node dist-bench/bench/battle-bench.js"
   },
   "license": "UNLICENSED",
   "dependencies": {

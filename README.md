@@ -102,6 +102,9 @@ The player's side answers at once with a random legal choice, against the wild A
 variables as the worker. `BENCH_BATTLES` (500), `BENCH_CONCURRENCY` (100), `BENCH_P99_MS` (80), `BENCH_FORMAT` and
 `BENCH_TIMEOUT_SECONDS` tune it. It exits 1 unless every battle finished and the turn p99 is under the target.
 
+Where only production dependencies are installed (a worker container), `npm run build:bench` compiles it to
+`dist-bench/` and `npm run bench:dist` runs it with plain Node.
+
 Phase 0 exit criterion: 500 battles on 4 workers, p99 < 80 ms. First runs on 2026-11-07, on a 10-core laptop, with
 RabbitMQ and Redis in Docker Desktop, 4 workers of capacity 50:
 
