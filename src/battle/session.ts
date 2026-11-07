@@ -3,7 +3,9 @@ import battleModule from 'pokemon-showdown/dist/sim/battle.js';
 
 import type { BattleAi, ChoiceRequest } from '../ai/ai.js';
 import { RandomAi } from '../ai/random-ai.js';
-import type { BattleSide, BattleStartPacket, BattleTeamState, ShardPacket } from '../codec/packets.js';
+import {
+    encode, type BattleEndedPacket, type BattleSide, type BattleStartPacket, type BattleTeamState, type ShardPacket,
+} from '../codec/packets.js';
 import { log } from '../log.js';
 import { capturingSide, fledSide, type SideRules } from './polaris-choices.js';
 import { reportTeams } from './team-state.js';
@@ -18,6 +20,12 @@ const SIDE_IDS = ['p1', 'p2', 'p3', 'p4'] as const;
 const MAX_CHOICE_LENGTH = 200;
 
 /**
+ * First line of an update that carries the player's whole view of the battle so far, sent from sequence 0 when the
+ * battle moves to another shard or worker: the shard starts its view over from it.
+ */
+export const RESYNC_LINE = '|polaris-resync|';
+
+/**
  * Where a session sends what the shard must see. Addressed by shard id: it changes when a player re-attaches from
  * another server.
  */
@@ -30,6 +38,8 @@ export interface SessionDependencies {
     store: BattleStore;
     createAi: (id: string) => BattleAi | undefined;
     idleTimeoutSeconds: number;
+    /** Turn timers run out in a row before a player counts as gone and the battle is aborted; 0 never. */
+    absentTurns: number;
     /** Called once, after the battle's last packet was sent. */
     onClosed: (session: BattleSession) => void;
 }
@@ -48,6 +58,8 @@ interface HumanSide {
     answered: boolean;
     /** Plays for the player when the turn timer runs out. */
     timer: NodeJS.Timeout | null;
+    /** Turn timers run out in a row: the player may be gone (their shard crashed, they left). */
+    timeouts: number;
 }
 
 /** Plays for a player whose turn timer ran out (GDD: the AI chooses). */
@@ -81,7 +93,7 @@ export class BattleSession {
     private readonly turnTimerSeconds: number;
 
     private constructor(start: BattleStartPacket, private readonly seed: string,
-                        private readonly deps: SessionDependencies) {
+                        private readonly deps: SessionDependencies, replay: string[] | null) {
         this.battleId = start.battleId;
         this.turnTimerSeconds = start.turnTimerSeconds;
         this.shardId = start.shardId;
@@ -89,10 +101,13 @@ export class BattleSession {
 
         for (const side of start.sides) {
             if (side.ai === '')
-                this.humans.set(side.slot, { side, pending: null, answered: false, timer: null });
+                this.humans.set(side.slot, { side, pending: null, answered: false, timer: null, timeouts: 0 });
             else
                 this.ais.set(side.slot, deps.createAi(side.ai)!);
         }
+
+        // A recovered battle replays its log before anything is read: what it printed then was already shown
+        const replayed = replay === null ? null : this.replay(replay);
 
         this.closed = this.pump()
             .catch(error => {
@@ -101,6 +116,11 @@ export class BattleSession {
             })
             .then(() => this.close());
 
+        if (replayed !== null) {
+            this.resume(replayed);
+            this.resetIdleTimer();
+            return;
+        }
         this.input(`>start ${JSON.stringify({ formatid: start.format, seed })}`);
         // Players get the battle's rules for the ball and the bag; options are logged as given, so replays keep them
         const rules: SideRules = { capture: start.allowCapture, bag: start.allowBag };
@@ -129,7 +149,16 @@ export class BattleSession {
      * Runs a battle checked by {@link prepare}. Its format must be registered ({@code Formats}).
      */
     static run(start: BattleStartPacket, seed: string, deps: SessionDependencies): BattleSession {
-        return new BattleSession(start, seed, deps);
+        return new BattleSession(start, seed, deps, null);
+    }
+
+    /**
+     * Takes over a battle whose worker died, from its start and input log: replays it silently, then sends its shard
+     * the whole battle again from sequence 0 (a {@link RESYNC_LINE} update per player) and the requests still
+     * unanswered. AI sides answer theirs. A battle that had ended closes at once, with its ended packet.
+     */
+    static recover(start: BattleStartPacket, seed: string, log: string[], deps: SessionDependencies): BattleSession {
+        return new BattleSession(start, seed, deps, log);
     }
 
     /**
@@ -198,6 +227,7 @@ export class BattleSession {
 
         this.resetIdleTimer();
         human.answered = true;
+        human.timeouts = 0;
         this.input(`>${side} ${choice}`);
         void this.deps.store.touch(this.battleId, this.turn()).catch(error =>
             log.warn('Could not refresh the battle keys', { battleId: this.battleId, error }));
@@ -216,10 +246,17 @@ export class BattleSession {
             this.abort(reason === '' ? 'ended by the shard' : reason);
     }
 
+    /**
+     * The battle is now shown by {@code shardId}: it gets the whole battle again from sequence 0, then the pending
+     * requests.
+     */
     attach(shardId: string): void {
         this.shardId = shardId;
         void this.deps.store.setShard(this.battleId, shardId).catch(error =>
             log.warn('Could not record the new shard', { battleId: this.battleId, error }));
+        for (const human of this.humans.values())
+            human.timeouts = 0;
+        this.resync();
         for (const [side, human] of this.humans)
             if (human.pending !== null)
                 this.emit({ packet: 'BattleRequestPacket', battleId: this.battleId, seq: 0, side,
@@ -234,6 +271,73 @@ export class BattleSession {
         this.abortReason = reason;
         this.snapshotTeams();
         void this.stream.writeEnd();
+    }
+
+    // ---- Recovery ----
+
+    /**
+     * Writes a logged battle into the fresh stream and takes back what it printed, before the pump reads any of it.
+     * The simulator runs inputs synchronously, so the output is all buffered by then.
+     *
+     * @return the last request each side got
+     */
+    private replay(inputs: string[]): Map<string, ChoiceRequest> {
+        void this.stream.write(inputs.join('\n'));
+        this.loggedInputs = this.stream.battle?.inputLog.length ?? 0;
+        const requests = new Map<string, ChoiceRequest>();
+        for (const chunk of this.stream.buf.splice(0)) {
+            const newline = chunk.indexOf('\n');
+            const type = newline < 0 ? chunk : chunk.slice(0, newline);
+            const data = newline < 0 ? '' : chunk.slice(newline + 1);
+            if (type === 'end') {
+                this.snapshotTeams();
+                continue;
+            }
+            if (type !== 'sideupdate')
+                continue;
+            const split = data.indexOf('\n');
+            const message = data.slice(split + 1);
+            if (message.startsWith('|request|'))
+                requests.set(data.slice(0, split), JSON.parse(message.slice('|request|'.length)) as ChoiceRequest);
+        }
+        return requests;
+    }
+
+    /**
+     * After a replay: the shard gets the battle again, then each side's unanswered request is asked again (players)
+     * or answered (AI).
+     */
+    private resume(requests: Map<string, ChoiceRequest>): void {
+        this.resync();
+        const battle = this.stream.battle;
+        if (battle === null || battle.ended)
+            return;
+        for (const [side, request] of requests) {
+            const simulated = battle.sides[SIDE_IDS.indexOf(side as typeof SIDE_IDS[number])];
+            if (simulated == null || request.wait || simulated.isChoiceDone())
+                continue;
+            const human = this.humans.get(side);
+            if (human !== undefined)
+                this.offer(side, human, request);
+            else
+                this.playAi(side, request);
+        }
+    }
+
+    /**
+     * Sends each player their whole view of the battle so far, from sequence 0.
+     */
+    private resync(): void {
+        this.seq = 0;
+        const battle = this.stream.battle;
+        if (battle === null)
+            return;
+        const channels = extractChannelMessages(battle.log.join('\n'), [1, 2, 3, 4]);
+        for (const side of this.humans.keys()) {
+            const lines = channels[(SIDE_IDS.indexOf(side as typeof SIDE_IDS[number]) + 1) as 1 | 2 | 3 | 4];
+            this.emit({ packet: 'BattleUpdatePacket', battleId: this.battleId, seq: 0, side,
+                lines: [RESYNC_LINE, ...lines] });
+        }
     }
 
     // ---- Simulator ----
@@ -291,14 +395,7 @@ export class BattleSession {
             const json = message.slice('|request|'.length);
             const human = this.humans.get(side);
             if (human !== undefined) {
-                const request = JSON.parse(json) as ChoiceRequest;
-                request.rqid = ++this.lastRqid;
-                const numbered = JSON.stringify(request);
-                human.pending = { rqid: request.rqid, request: numbered };
-                human.answered = false;
-                this.emit({ packet: 'BattleRequestPacket', battleId: this.battleId, seq: 0, side,
-                    rqid: request.rqid, request: numbered });
-                this.startTurnTimer(side, human, request);
+                this.offer(side, human, JSON.parse(json) as ChoiceRequest);
             } else {
                 this.playAi(side, JSON.parse(json) as ChoiceRequest);
             }
@@ -319,6 +416,19 @@ export class BattleSession {
     }
 
     /**
+     * Numbers a request for a player and sends it.
+     */
+    private offer(side: string, human: HumanSide, request: ChoiceRequest): void {
+        request.rqid = ++this.lastRqid;
+        const numbered = JSON.stringify(request);
+        human.pending = { rqid: request.rqid, request: numbered };
+        human.answered = false;
+        this.emit({ packet: 'BattleRequestPacket', battleId: this.battleId, seq: 0, side,
+            rqid: request.rqid, request: numbered });
+        this.startTurnTimer(side, human, request);
+    }
+
+    /**
      * Starts the side's turn timer for a request it has to answer: when it runs out, the AI chooses for the player and
      * the shard is told with a {@code |polaris-timer|<side>} line. Off when the start's timer is 0.
      */
@@ -334,6 +444,13 @@ export class BattleSession {
             human.timer = null;
             if (this.abortReason !== null || human.pending?.rqid !== rqid || human.answered)
                 return;
+            human.timeouts++;
+            if (this.deps.absentTurns > 0 && human.timeouts >= this.deps.absentTurns) {
+                log.info('Player absent for too many turns, aborting', { battleId: this.battleId, side,
+                    timeouts: human.timeouts });
+                this.abort('absent');
+                return;
+            }
             const choice = TIMEOUT_AI.choose(request);
             if (choice === null)
                 return;
@@ -388,9 +505,11 @@ export class BattleSession {
                 reason = 'captured';
         }
 
-        this.emit({ packet: 'BattleEndedPacket', battleId: this.battleId, seq: 0, result, reason, turns: this.turn(),
-            teams: this.finalTeams });
-        await this.deps.store.finish(this.battleId, result).catch(error =>
+        const ended: BattleEndedPacket = { packet: 'BattleEndedPacket', battleId: this.battleId, seq: 0, result, reason,
+            turns: this.turn(), teams: this.finalTeams };
+        this.emit(ended);
+        // Kept for a shard that was not there to receive it: it settles the battle when the player comes back
+        await this.deps.store.finish(this.battleId, result, encode(ended).toString('base64')).catch(error =>
             log.warn('Could not mark the battle ended', { battleId: this.battleId, error }));
         this.deps.onClosed(this);
     }

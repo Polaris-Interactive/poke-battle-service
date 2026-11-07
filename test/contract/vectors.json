@@ -148,4 +148,12 @@
   },
   "id" : 8,
   "hex" : "080192f5a83c4d7e6f8a9b0c1d2e3f4a5b80800103746965000c02027031010000021e1902231902703201b8020362726e01380138"
+}, {
+  "packet" : "BattleRecoverPacket",
+  "fields" : {
+    "battleId" : "0192f5a8-3c4d-7e6f-8a9b-0c1d2e3f4a5b",
+    "shardId" : "spawn-2"
+  },
+  "id" : 9,
+  "hex" : "090192f5a83c4d7e6f8a9b0c1d2e3f4a5b07737061776e2d32"
 } ]

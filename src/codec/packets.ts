@@ -81,6 +81,16 @@ export interface BattleAttachPacket {
     shardId: string;
 }
 
+/**
+ * A shard asks the start queue to take over a battle whose worker died: the worker that takes it replays the battle's
+ * input log and answers with a {@link BattleStartReplyPacket} (refused with reason {@code ended} when it had ended).
+ */
+export interface BattleRecoverPacket {
+    packet: 'BattleRecoverPacket';
+    battleId: string;
+    shardId: string;
+}
+
 export interface BattleUpdatePacket {
     packet: 'BattleUpdatePacket';
     battleId: string;
@@ -128,7 +138,8 @@ export type Packet =
     | BattleUpdatePacket
     | BattleRequestPacket
     | BattleChoiceErrorPacket
-    | BattleEndedPacket;
+    | BattleEndedPacket
+    | BattleRecoverPacket;
 
 export type PacketName = Packet['packet'];
 
@@ -251,6 +262,11 @@ const CODECS: { [N in PacketName]: Codec<Extract<Packet, { packet: N }>> } = {
             battleId: r.readUuid(), seq: r.readVarLong(), result: r.readString(), reason: r.readString(), turns: r.readVarInt(),
             teams: r.readList(readTeam),
         }),
+    },
+    BattleRecoverPacket: {
+        id: 0x09,
+        write: (w, p) => w.writeUuid(p.battleId).writeString(p.shardId),
+        read: r => ({ battleId: r.readUuid(), shardId: r.readString() }),
     },
 };
 

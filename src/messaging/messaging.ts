@@ -1,6 +1,8 @@
 import { connect, type Channel, type ChannelModel, type ConsumeMessage, type RecoveringChannelModel } from 'amqplib';
 
-import { decode, encode, type BattleStartPacket, type Packet, type ShardPacket } from '../codec/packets.js';
+import {
+    decode, encode, type BattleRecoverPacket, type BattleStartPacket, type Packet, type ShardPacket,
+} from '../codec/packets.js';
 import type { WorkerConfig } from '../config.js';
 import { log } from '../log.js';
 import { exchanges } from '../store/keys.js';
@@ -21,6 +23,8 @@ export type StartOutcome =
 
 export interface MessagingHandlers {
     onStart(packet: BattleStartPacket): Promise<StartOutcome>;
+    /** A shard asks for a battle whose worker died; answered like a start. */
+    onRecover(packet: BattleRecoverPacket): Promise<StartOutcome>;
     /** A battle command from a shard (choice, end, attach). */
     onCommand(packet: Packet): void;
 }
@@ -131,7 +135,7 @@ export class Messaging implements Outbox {
             channel.ack(message);
             return;
         }
-        if (packet.packet !== 'BattleStartPacket') {
+        if (packet.packet !== 'BattleStartPacket' && packet.packet !== 'BattleRecoverPacket') {
             log.warn('Unexpected packet on the start queue, dropped', { packet: packet.packet });
             channel.ack(message);
             return;
@@ -139,7 +143,9 @@ export class Messaging implements Outbox {
 
         let outcome: StartOutcome;
         try {
-            outcome = await this.handlers.onStart(packet);
+            outcome = packet.packet === 'BattleStartPacket'
+                ? await this.handlers.onStart(packet)
+                : await this.handlers.onRecover(packet);
         } catch (error) {
             log.error('Start failed', { battleId: packet.battleId, error });
             outcome = { kind: 'requeue' };

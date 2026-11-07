@@ -14,6 +14,10 @@ export interface WorkerConfig {
     startTtlMs: number;
     /** A battle with no input for this long is aborted, and its Redis keys expire. */
     idleTimeoutSeconds: number;
+    /** Turn timers run out in a row before a player counts as gone and the battle is aborted; 0 never. */
+    absentTurns: number;
+    /** How long an ended battle's keys stay, so a shard that missed the end can still settle it. */
+    endedTtlSeconds: number;
     heartbeatIntervalMs: number;
     heartbeatTtlSeconds: number;
     /** How long SIGTERM waits for running battles before exiting. */
@@ -62,6 +66,8 @@ export function loadConfig(): WorkerConfig {
         },
         startTtlMs: integer('START_TTL_MS', 10_000),
         idleTimeoutSeconds: integer('BATTLE_IDLE_TIMEOUT_SECONDS', 900),
+        absentTurns: integer('ABSENT_TURNS', 3),
+        endedTtlSeconds: integer('ENDED_TTL_SECONDS', 3_600),
         heartbeatIntervalMs: integer('HEARTBEAT_INTERVAL_MS', 1_000),
         heartbeatTtlSeconds: integer('HEARTBEAT_TTL_SECONDS', 5),
         drainTimeoutSeconds: integer('DRAIN_TIMEOUT_SECONDS', 600),

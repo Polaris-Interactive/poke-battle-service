@@ -31,8 +31,18 @@ Paper servers ──BattleStartPacket──▶ pokebattle.start (shared queue) �
 - **Turn timer:** with `turnTimerSeconds` > 0, a player request left unanswered that long is answered by the random AI,
   and the player's view gets a `|polaris-timer|<side>` line first.
 - **Replay:** every simulator input is appended to `pokebattle:battle:<id>:log`. With the seed, that replays the
-  battle exactly (tested). Recovery on another worker uses it (not built yet).
-- **Heartbeat:** `pokebattle:worker:<id>` (battles, capacity) with a short TTL, to detect dead workers.
+  battle exactly (tested).
+- **Recovery:** a shard whose battle's worker stopped beating sends `BattleRecoverPacket` to the start queue. The first
+  worker with room takes the battle over in Redis (only from a dead worker: no heartbeat, or one from another process
+  with the same id), replays its log silently and answers like a start. The battle then goes to the shard again from
+  sequence 0: one update per player starting with `|polaris-resync|` (their whole view so far), then the requests still
+  unanswered. Re-attaching to another shard (`BattleAttachPacket`) sends the same resync.
+- **Ended battles wait:** the `BattleEndedPacket` is kept in the battle's hash (`ended`, base64) for `ENDED_TTL_SECONDS`,
+  so a shard that was not there to receive it (crashed, player away) settles it when the player comes back.
+- **Absent players:** after `ABSENT_TURNS` turn timers in a row with no choice, the battle is aborted (reason
+  `absent`): a battle whose shard crashed does not get played to the end by the timer AI.
+- **Heartbeat:** `pokebattle:worker:<id>` (`instance`, battles, capacity) with a short TTL, to detect dead workers.
+  `instance` is new on every boot.
 
 The protocol is defined in PokeBattle's `common` module (`PokeBattlePacketRegistry`, `PokeBattleExchanges`,
 `PokeBattleKeys`). `test/contract/vectors.json` holds byte vectors written by AstralCore's Java serializer; the
@@ -68,6 +78,8 @@ Node 22+. Same environment variables as AstralCore for the infrastructure (`.env
 | `REDIS_HOST/PORT/USERNAME/PASSWORD/DATABASE` | localhost, 6379, -, -, 0 | |
 | `START_TTL_MS` | 10000 | a start nobody took by then expires |
 | `BATTLE_IDLE_TIMEOUT_SECONDS` | 900 | a battle with no input for this long is aborted |
+| `ABSENT_TURNS` | 3 | turn timers run out in a row before the battle is aborted as `absent`; 0 never |
+| `ENDED_TTL_SECONDS` | 3600 | how long an ended battle's keys (and its ended packet) stay for a shard to settle it |
 | `HEARTBEAT_INTERVAL_MS`, `HEARTBEAT_TTL_SECONDS` | 1000, 5 | |
 | `DRAIN_TIMEOUT_SECONDS` | 600 | on SIGTERM: stop taking starts, wait this long for battles, then abort them |
 | `FORMATS_FILE` | `config/formats.json` | |

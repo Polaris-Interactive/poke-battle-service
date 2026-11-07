@@ -8,8 +8,10 @@ function manager(capacity = 2, store = new MemoryStore()) {
     const capacityChanges: boolean[] = [];
     const instance = new BattleManager({
         workerId: 'worker-1',
+        instance: 'i-1',
         capacity,
         idleTimeoutSeconds: 60,
+        absentTurns: 0,
         formats: Formats.load('config/formats.json'),
         store,
         outbox: new RecordingOutbox(),
@@ -33,7 +35,9 @@ describe('BattleManager', () => {
     it('drops a start another worker already claimed', async () => {
         const { instance, store } = manager();
         const start = startPacket();
-        await store.claim(start.battleId, { workerId: 'worker-2', shardId: 'shard-a', format: 'polariswild', seed: 'x' });
+        await store.claim(start.battleId, {
+            workerId: 'worker-2', instance: 'i-2', shardId: 'shard-a', format: 'polariswild', seed: 'x', start: '{}',
+        });
 
         expect(await instance.start(start)).toEqual({ kind: 'drop' });
         expect(instance.size).toBe(0);
@@ -85,5 +89,34 @@ describe('Formats', () => {
             .toThrow(/has the id polarisy/);
         expect(() => Formats.register({ polarisz: { name: 'Polaris Z', mod: 'gen9', gameType: 'singles', ruleset: ['Nope Clause'] } }))
             .toThrow();
+    });
+});
+
+describe('BattleManager recovery', () => {
+    it('takes over a dead worker\'s battle and refuses one still running or ended', async () => {
+        const first = manager();
+        const start = startPacket();
+        await first.instance.start(start);
+
+        // Another worker sharing the store: the first one still beats
+        const second = new BattleManager({
+            workerId: 'worker-2', instance: 'i-2', capacity: 5, idleTimeoutSeconds: 60, absentTurns: 0,
+            formats: Formats.load('config/formats.json'), store: first.store, outbox: new RecordingOutbox(),
+            onCapacityChange: () => undefined,
+        });
+        const recover = { packet: 'BattleRecoverPacket' as const, battleId: start.battleId, shardId: 'shard-b' };
+        expect(await second.recover(recover)).toMatchObject({ reply: { accepted: false, reason: 'alive' } });
+
+        first.store.dead.add('worker-1');
+        expect(await second.recover(recover)).toMatchObject({ reply: { accepted: true, workerId: 'worker-2' } });
+        expect(second.size).toBe(1);
+        expect(first.store.claims.get(start.battleId)).toMatchObject({ workerId: 'worker-2', instance: 'i-2' });
+        // Asked twice: answered again, not run twice
+        expect(await second.recover(recover)).toMatchObject({ reply: { accepted: true } });
+        expect(second.size).toBe(1);
+
+        await second.drain(0);
+        await first.instance.drain(0);
+        expect(await second.recover(recover)).toMatchObject({ reply: { accepted: false, reason: 'ended' } });
     });
 });

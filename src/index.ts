@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import { Redis } from 'ioredis';
 
 import { BattleManager } from './battle/manager.js';
@@ -18,14 +20,19 @@ redis.on('error', error => {
     lastRedisWarning = Date.now();
     log.warn('Redis unavailable, retrying', { error });
 });
-const store = new RedisBattleStore(redis, config.idleTimeoutSeconds, config.heartbeatTtlSeconds);
+const store = new RedisBattleStore(redis, config.idleTimeoutSeconds, config.heartbeatTtlSeconds,
+    config.endedTtlSeconds);
 const startedAt = Date.now();
+// This process: a worker restarted with the same id holds none of its old battles, so they can be taken over
+const instance = randomUUID();
 
 let messaging: Messaging;
 const manager = new BattleManager({
     workerId: config.workerId,
+    instance,
     capacity: config.capacity,
     idleTimeoutSeconds: config.idleTimeoutSeconds,
+    absentTurns: config.absentTurns,
     formats,
     store,
     outbox: { send: (shardId, packet) => messaging.send(shardId, packet) },
@@ -34,11 +41,12 @@ const manager = new BattleManager({
 });
 messaging = new Messaging(config, {
     onStart: packet => manager.start(packet),
+    onRecover: packet => manager.recover(packet),
     onCommand: packet => manager.command(packet),
 });
 
 const heartbeat = setInterval(() => {
-    store.heartbeat(config.workerId, manager.size, config.capacity, startedAt)
+    store.heartbeat(config.workerId, instance, manager.size, config.capacity, startedAt)
         .catch(error => log.warn('Heartbeat failed', { error }));
 }, config.heartbeatIntervalMs);
 

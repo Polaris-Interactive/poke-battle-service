@@ -2,7 +2,7 @@ import ps from 'pokemon-showdown';
 import { describe, expect, it } from 'vitest';
 
 import { createAi } from '../src/ai/registry.js';
-import { BattleSession } from '../src/battle/session.js';
+import { BattleSession, RESYNC_LINE } from '../src/battle/session.js';
 import { Formats } from '../src/battle/formats.js';
 import type { BattleStartPacket } from '../src/codec/packets.js';
 import { MemoryStore, RecordingOutbox, randomTeam, startPacket } from './fakes.js';
@@ -13,7 +13,7 @@ Formats.load('config/formats.json');
 function run(start: BattleStartPacket, outbox = new RecordingOutbox(), store = new MemoryStore()) {
     const seed = BattleSession.prepare(start, { createAi });
     const session = BattleSession.run(start, seed, {
-        outbox, store, createAi, idleTimeoutSeconds: 60, onClosed: () => undefined,
+        outbox, store, createAi, idleTimeoutSeconds: 60, absentTurns: 0, onClosed: () => undefined,
     });
     return { session, outbox, store };
 }
@@ -106,11 +106,16 @@ describe('BattleSession', () => {
         const { session, store } = run(startPacket(), outbox);
         const request = await nextRequest(outbox, 1);
 
+        const before = outbox.sent.length;
         session.attach('shard-b');
-        const resent = outbox.sent.at(-1)!;
-        expect(resent.shardId).toBe('shard-b');
-        expect(resent.packet).toMatchObject({ packet: 'BattleRequestPacket', rqid: request.rqid, request: request.request });
-        expect(resent.packet.seq).toBe(outbox.sent.length - 1);
+        // The new shard gets the whole battle from sequence 0, then the pending request
+        const [resync, resent] = outbox.sent.slice(before);
+        expect(resync!.shardId).toBe('shard-b');
+        expect(resync!.packet).toMatchObject({ packet: 'BattleUpdatePacket', seq: 0, side: 'p1' });
+        const lines = (resync!.packet as { lines: string[] }).lines;
+        expect(lines[0]).toBe(RESYNC_LINE);
+        expect(lines).toEqual([RESYNC_LINE, ...outbox.packets('BattleUpdatePacket').slice(0, -1).flatMap(u => u.lines)]);
+        expect(resent!.packet).toMatchObject({ packet: 'BattleRequestPacket', seq: 1, rqid: request.rqid, request: request.request });
         expect(store.shards.get(session.battleId)).toBe('shard-b');
 
         session.abort('test');
@@ -187,3 +192,86 @@ describe('BattleSession', () => {
             .toThrow(/fainted/);
     });
 });
+
+describe('BattleSession recovery', () => {
+    function recover(start: BattleStartPacket, seed: string, inputs: string[], outbox = new RecordingOutbox()) {
+        const session = BattleSession.recover(start, seed, inputs, {
+            outbox, store: new MemoryStore(), createAi, idleTimeoutSeconds: 60, absentTurns: 0, onClosed: () => undefined,
+        });
+        return { session, outbox };
+    }
+
+    async function playTurns(session: BattleSession, outbox: RecordingOutbox, turns: number) {
+        for (let count = 1; count <= turns; count++) {
+            const request = await nextRequest(outbox, count);
+            const parsed = JSON.parse(request.request);
+            if (parsed.wait)
+                continue;
+            session.choose('p1', request.rqid, 'default');
+        }
+        return nextRequest(outbox, turns + 1);
+    }
+
+    it('replays a dead worker\'s battle silently, resends it from 0 and asks the pending request again', async () => {
+        const start = startPacket();
+        const { session, outbox, store } = run(start);
+        const pending = await playTurns(session, outbox, 3);
+        const seed = session.seedUsed;
+        const inputs = [...store.logs.get(start.battleId)!];
+        const shown = outbox.packets('BattleUpdatePacket').flatMap(update => update.lines);
+        session.abort('worker died');
+        await session.done;
+
+        const recovered = recover({ ...start, shardId: 'shard-b' }, seed, inputs);
+        await nextRequest(recovered.outbox, 1);
+        const [resync, request] = recovered.outbox.sent;
+        expect(resync!.shardId).toBe('shard-b');
+        expect(resync!.packet).toMatchObject({ packet: 'BattleUpdatePacket', seq: 0, side: 'p1' });
+        expect((resync!.packet as { lines: string[] }).lines).toEqual([RESYNC_LINE, ...shown]);
+        // The same decision to make (request numbers start over on the new worker)
+        expect(request!.packet.seq).toBe(1);
+        const strip = (json: string) => ({ ...JSON.parse(json), rqid: 0 });
+        expect(strip((request!.packet as { request: string }).request)).toEqual(strip(pending.request));
+
+        // And it plays on to the end
+        recovered.outbox.autoplay = (side, rqid, choice) => recovered.session.choose(side, rqid, choice);
+        recovered.session.choose('p1', (request!.packet as { rqid: number }).rqid, 'default');
+        await recovered.session.done;
+        expect(recovered.outbox.packets('BattleEndedPacket')[0]!.result).toMatch(/^(p1|p2|tie)$/);
+    });
+
+    it('closes a battle that had ended with the same result', async () => {
+        const outbox = new RecordingOutbox();
+        const start = startPacket();
+        const { session, store } = run(start, outbox);
+        outbox.autoplay = (side, rqid, choice) => session.choose(side, rqid, choice);
+        await session.done;
+        const ended = outbox.packets('BattleEndedPacket')[0]!;
+
+        const recovered = recover(start, session.seedUsed, store.logs.get(start.battleId)!);
+        await recovered.session.done;
+        expect(recovered.outbox.packets('BattleRequestPacket')).toEqual([]);
+        expect(recovered.outbox.packets('BattleEndedPacket')[0]).toMatchObject({
+            result: ended.result, turns: ended.turns, teams: ended.teams,
+        });
+    });
+
+    it('aborts once the player let the timer run out too many turns in a row', async () => {
+        const outbox = new RecordingOutbox();
+        const start = startPacket({ turnTimerSeconds: 1 });
+        const store = new MemoryStore();
+        const session = BattleSession.run(start, BattleSession.prepare(start, { createAi }), {
+            outbox, store, createAi, idleTimeoutSeconds: 60, absentTurns: 2, onClosed: () => undefined,
+        });
+        await session.done;
+
+        expect(lines(outbox)).toContain('|polaris-timer|p1');
+        expect(outbox.packets('BattleEndedPacket')[0]).toMatchObject({ result: 'aborted', reason: 'absent' });
+        // Kept for the shard that settles it when the player comes back
+        expect(store.ended.get(start.battleId)).toBeTruthy();
+    }, 5_000);
+});
+
+function lines(outbox: RecordingOutbox): string[] {
+    return outbox.packets('BattleUpdatePacket').flatMap(update => update.lines);
+}

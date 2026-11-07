@@ -2,7 +2,7 @@ import ps from 'pokemon-showdown';
 
 import { RandomAi } from '../src/ai/random-ai.js';
 import type { BattleSide, BattleStartPacket, ShardPacket } from '../src/codec/packets.js';
-import type { BattleMeta, BattleStore } from '../src/store/battle-store.js';
+import type { BattleMeta, BattleStore, TakeOver } from '../src/store/battle-store.js';
 
 const { Teams } = ps;
 
@@ -37,6 +37,9 @@ export class MemoryStore implements BattleStore {
     readonly logs = new Map<string, string[]>();
     readonly results = new Map<string, string>();
     readonly shards = new Map<string, string>();
+    readonly ended = new Map<string, string>();
+    /** Workers whose heartbeat is gone. */
+    readonly dead = new Set<string>();
 
     async claim(battleId: string, meta: BattleMeta): Promise<boolean> {
         if (this.claims.has(battleId))
@@ -61,8 +64,21 @@ export class MemoryStore implements BattleStore {
         this.shards.set(battleId, shardId);
     }
 
-    async finish(battleId: string, result: string): Promise<void> {
+    async takeOver(battleId: string, workerId: string, instance: string): Promise<TakeOver> {
+        const meta = this.claims.get(battleId);
+        if (meta === undefined)
+            return { status: 'missing' };
+        if (this.ended.has(battleId))
+            return { status: 'ended' };
+        if (meta.instance !== instance && !this.dead.has(meta.workerId))
+            return { status: 'alive' };
+        this.claims.set(battleId, { ...meta, workerId, instance });
+        return { status: 'taken', seed: meta.seed, start: meta.start, log: this.logs.get(battleId) ?? [] };
+    }
+
+    async finish(battleId: string, result: string, ended: string): Promise<void> {
         this.results.set(battleId, result);
+        this.ended.set(battleId, ended);
     }
 
     async heartbeat(): Promise<void> {
