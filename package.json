@@ -1,7 +1,7 @@
 {
   "name": "poke-battle-service",
   "version": "0.1.0",
-  "description": "PokeLegends battle worker: runs Pok\u00e9mon Showdown battles for PokeBattle over RabbitMQ (AstralCore packets).",
+  "description": "PokeLegends battle worker: runs Pokémon Showdown battles for PokeBattle over RabbitMQ (AstralCore packets).",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -9,7 +9,8 @@
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
     "test": "vitest run",
-    "sync-vectors": "cp ../PokeBattle/common/src/test/resources/contract/vectors.json test/contract/vectors.json"
+    "sync-vectors": "cp ../PokeBattle/common/src/test/resources/contract/vectors.json test/contract/vectors.json",
+    "bench": "tsx bench/battle-bench.ts"
   },
   "license": "UNLICENSED",
   "dependencies": {

@@ -90,3 +90,26 @@ npm install
 npm test          # contract vectors, AI, full battles, store
 npm run build && npm start
 ```
+
+## battle-bench
+
+`npm run bench` plays a shard against the running workers through the real start queue. It measures what a player
+waits for, excluding the player's own thinking:
+- **turn latency:** from a choice published to that battle's next request or end;
+- **start latency:** from a start published to the worker's reply.
+
+The player's side answers at once with a random legal choice, against the wild AI. It uses the same `RABBITMQ_*`
+variables as the worker. `BENCH_BATTLES` (500), `BENCH_CONCURRENCY` (100), `BENCH_P99_MS` (80), `BENCH_FORMAT` and
+`BENCH_TIMEOUT_SECONDS` tune it. It exits 1 unless every battle finished and the turn p99 is under the target.
+
+Phase 0 exit criterion: 500 battles on 4 workers, p99 < 80 ms. First runs on 2026-11-07, on a 10-core laptop, with
+RabbitMQ and Redis in Docker Desktop, 4 workers of capacity 50:
+
+| Concurrent battles | Turn p50 | Turn p99 | Turn max | Start p99 |
+|---|---|---|---|---|
+| 100 (4 runs) | 24–31 ms | 50–73 ms | 105–130 ms | ~860 ms (100 starts at once) |
+| 40 (4 runs) | 11–15 ms | 26–38 ms, one run at 82 | 38–233 ms | ~120 ms |
+
+These battles answer instantly. With real players thinking for seconds, a worker carries far less load per battle
+than here.
+
