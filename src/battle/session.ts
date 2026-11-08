@@ -2,6 +2,7 @@ import ps from 'pokemon-showdown';
 import battleModule from 'pokemon-showdown/dist/sim/battle.js';
 
 import type { BattleAi, ChoiceRequest } from '../ai/ai.js';
+import { viewOf } from '../ai/battle-view.js';
 import { RandomAi } from '../ai/random-ai.js';
 import {
     encode, type BattleEndedPacket, type BattleSide, type BattleStartPacket, type BattleTeamState, type ShardPacket,
@@ -471,8 +472,13 @@ export class BattleSession {
         }
     }
 
+    /**
+     * The AI sees the battle as it stands: an AI side's request is read before the battle can move on (it waits for
+     * that side's choice), and after a recovery the replayed battle is in the same state.
+     */
     private playAi(side: string, request: ChoiceRequest): void {
-        const choice = this.ais.get(side)?.choose(request);
+        const battle = this.stream.battle;
+        const choice = this.ais.get(side)?.choose(request, battle === null ? undefined : viewOf(battle, side));
         if (choice != null)
             this.input(`>${side} ${choice}`);
     }

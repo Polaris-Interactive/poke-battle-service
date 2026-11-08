@@ -51,10 +51,21 @@ codec must reproduce them exactly. After a contract change: regenerate them in P
 
 ## Formats and AI
 
-`config/formats.json` defines the formats added to the simulator at boot; a shard sends the format id as is
-(`polariswild`). A format's `polaris` block turns on PokeSMP's choices (`src/battle/polaris-choices.ts`); the ball and
-the bag also need the start's `allowCapture` / `allowBag`. Each takes the creature's turn and runs before moves
-(singles only):
+`config/formats.json` defines the formats added to the simulator at boot; a shard sends the format id as is.
+
+| Format | Ruleset on top of singles, no team preview, HP Percentage Mod | `polaris` choices |
+|---|---|---|
+| `polariswild` | | capture, bag, flee |
+| `polaristrainer` | no species clause | bag |
+| `polarisgym` | no species clause, Sleep Clause Mod | none |
+
+Item clause and level caps are validator rules, which the worker never runs: PokeBattle enforces them when it builds
+the team.
+
+A format's `polaris` block turns on PokeSMP's choices (`src/battle/polaris-choices.ts`); the ball and the bag also need
+the start's `allowCapture` / `allowBag` (only player sides get them, so an AI side never throws a ball or uses the
+bag); fleeing is per format only. A choice the format or the start does not allow is refused by the worker. Each takes
+the creature's turn and runs before moves (singles only):
 
 | Choice | Effect | Line in the player's view |
 |---|---|---|
@@ -64,7 +75,18 @@ the bag also need the start's `allowCapture` / `allowBag`. Each takes the creatu
 
 Raid mechanics come with the Showdown fork.
 
-AI ids a start may give a side: `wild` (random legal choice). A start naming an unknown AI is refused.
+AI ids a start may give a side (a start naming an unknown one is refused):
+- `wild`: a random legal choice.
+- `trainer`: damage first (`src/ai/heuristic-ai.ts`). Each usable move scores base power × STAB × type effectiveness
+  against the opponent's active creature × accuracy (× the attacker's better attacking stat); a move likely to finish
+  the opponent wins (the most accurate, then the fastest), status moves only count when nothing deals damage. A forced
+  switch sends in the best matchup.
+- `gym`: the same, and it also switches out when nothing its active creature has can touch the opponent while a
+  teammate can.
+
+These AIs see a frozen view of the battle (`src/ai/battle-view.ts`: their own team, the opponent's active creatures as
+shown, HP as a percentage). They draw nothing random and break ties by move slot: a recovered battle's AI answers its
+pending request as the first worker would have.
 
 ## Running
 

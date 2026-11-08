@@ -16,5 +16,42 @@
       "bag": true,
       "flee": true
     }
+  },
+  "polaristrainer": {
+    "name": "Polaris Trainer",
+    "description": "NPC trainer battle, singles, no team preview, no species clause: the bag, no capture, no flee.",
+    "mod": "gen9",
+    "gameType": "singles",
+    "ruleset": [
+      "Cancel Mod",
+      "HP Percentage Mod",
+      "Max Team Size = 6",
+      "Max Level = 100",
+      "Default Level = 100"
+    ],
+    "polaris": {
+      "capture": false,
+      "bag": true,
+      "flee": false
+    }
+  },
+  "polarisgym": {
+    "name": "Polaris Gym",
+    "description": "Gym leader battle, singles, no team preview, no species clause, Sleep Clause: no bag, no capture, no flee.",
+    "mod": "gen9",
+    "gameType": "singles",
+    "ruleset": [
+      "Cancel Mod",
+      "HP Percentage Mod",
+      "Sleep Clause Mod",
+      "Max Team Size = 6",
+      "Max Level = 100",
+      "Default Level = 100"
+    ],
+    "polaris": {
+      "capture": false,
+      "bag": false,
+      "flee": false
+    }
   }
 }
